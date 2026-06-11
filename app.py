@@ -1,8 +1,7 @@
 import streamlit as st
-import easyocr
+import pytesseract
 import pandas as pd
 import numpy as np
-import json
 import re
 from PIL import Image
 
@@ -11,14 +10,7 @@ st.set_page_config(
     page_icon="🔍"
 )
 
-# 1. Оптимизиран Рийдър: gpu=False и лимит на нишките спират безкрайното въртене
-@st.cache_resource
-def create_reader():
-    return easyocr.Reader(["bg", "en"], gpu=False)
-
-ocr_reader = create_reader()
-
-# 2. Вградена база данни (директно от вашия JSON)
+# Вградена база данни (директно от вашия JSON)
 INGREDIENTS = {
   "аспартам": {"group": "Спорни", "info": "Изкуствен подсладител. Съответства на E951."},
   "ацесулфам к": {"group": "Спорни", "info": "Изкуствен подсладител. Съответства на E950."},
@@ -98,25 +90,18 @@ OCR_ALIASES = {
 def normalize_text(text):
     text = text.lower()
     replacements = {
-        "€": "e",
-        "[": "e",
-        "]": "",
-        "(": "",
-        ")": "",
-        "{": "",
-        "}": "",
-        "|": "",
-        "\n": " "
+        "€": "e", "[": "e", "]": "", "(": "", ")": "",
+        "{": "", "}": "", "|": "", "\n": " "
     }
     for old, new in replacements.items():
         text = text.replace(old, new)
     return text
 
-# КЕШИРАНЕ: Ограничаваме процеса до 1 работна нишка (workers=1), за да няма забиване
+# Използваме лекия Tesseract вместо EasyOCR
 @st.cache_data
-def extract_text(image_array):
-    result = ocr_reader.readtext(image_array, paragraph=True, workers=1)
-    text = " ".join(item[1] for item in result)
+def extract_text(image_obj):
+    # 'bul+eng' казва на Tesseract да търси едновременно български и английски думи
+    text = pytesseract.image_to_string(image_obj, lang="bul+eng")
     return normalize_text(text)
 
 def detect_ingredients(text):
@@ -136,15 +121,11 @@ def detect_ingredients(text):
                     "Описание": data["info"]
                 })
 
-    # Хваща и българско 'е', и латинско 'e'
     e_numbers = re.findall(r"[eе]\s?\d{3,4}[a-z]?", text)
-
     for e_code in e_numbers:
         e_code = e_code.replace(" ", "").replace("е", "e")
-
         if e_code in found:
             continue
-
         if e_code in INGREDIENTS:
             data = INGREDIENTS[e_code]
             found.add(e_code)
@@ -153,7 +134,6 @@ def detect_ingredients(text):
                 "Категория": data["group"],
                 "Описание": data["info"]
             })
-
     return matches
 
 def calculate_score(results):
@@ -168,11 +148,7 @@ def calculate_score(results):
 
 st.title("🔍 Проверка на хранителни съставки")
 
-input_mode = st.selectbox(
-    "Избери източник",
-    ["Качи изображение", "Използвай камера"]
-)
-
+input_mode = st.selectbox("Избери източник", ["Качи изображение", "Използвай камера"])
 photo = None
 
 if input_mode == "Качи изображение":
@@ -185,27 +161,16 @@ else:
         photo = Image.open(captured)
 
 if photo:
-    # ОПТИМИЗАЦИЯ НА РАЗМЕРА: Свива снимката, ако е огромна. 
-    # Това ускорява EasyOCR десетки пъти на CPU!
-    max_width = 1000
-    if photo.width > max_width:
-        w_percent = (max_width / float(photo.width))
-        h_size = int((float(photo.height) * float(w_percent)))
-        photo = photo.resize((max_width, h_size), Image.Resampling.LANCZOS)
-
     st.image(photo, use_container_width=True)
 
-    image_array = np.array(photo)
-
     with st.spinner("Разпознаване на текст..."):
-        raw_text = extract_text(image_array)
+        raw_text = extract_text(photo)
 
     st.subheader("Открит текст")
     with st.expander("Покажи OCR резултат"):
         st.write(raw_text)
 
     ingredients_found = detect_ingredients(raw_text)
-
     st.subheader("Резултат")
 
     if ingredients_found:
@@ -221,16 +186,9 @@ if photo:
 
         results_df = pd.DataFrame(ingredients_found)
         priority = {"Полезни": 1, "Безвредни": 2, "Спорни": 3, "Вредни": 4}
-        
-        results_df = results_df.sort_values(
-            by="Категория",
-            key=lambda x: x.map(priority)
-        )
+        results_df = results_df.sort_values(by="Категория", key=lambda x: x.map(priority))
 
-        st.dataframe(
-            results_df[["Съставка", "Категория"]],
-            use_container_width=True
-        )
+        st.dataframe(results_df[["Съставка", "Категория"]], use_container_width=True)
 
         for row in ingredients_found:
             if row["Категория"] == "Полезни":
