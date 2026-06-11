@@ -1,7 +1,6 @@
 streamlit
-easyocr
 opencv-python-headless
-torch
 torchvision
 numpy<2
 Pillow
+pytesseract
