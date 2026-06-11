@@ -1,5 +1,5 @@
 import streamlit as st
-import pytesseract
+import easyocr
 import pandas as pd
 import numpy as np
 import re
@@ -9,6 +9,13 @@ st.set_page_config(
     page_title="Сканиране на хранителни съставки",
     page_icon="🔍"
 )
+
+# Връщаме EasyOCR с настройки за стабилност на CPU
+@st.cache_resource
+def create_reader():
+    return easyocr.Reader(["bg", "en"], gpu=False)
+
+ocr_reader = create_reader()
 
 # Вградена база данни (директно от вашия JSON)
 INGREDIENTS = {
@@ -97,11 +104,11 @@ def normalize_text(text):
         text = text.replace(old, new)
     return text
 
-# Използваме лекия Tesseract вместо EasyOCR
 @st.cache_data
-def extract_text(image_obj):
-    # 'bul+eng' казва на Tesseract да търси едновременно български и английски думи
-    text = pytesseract.image_to_string(image_obj, lang="bul+eng")
+def extract_text(image_array):
+    # Ограничаваме нишките до 1 за стабилност в Streamlit
+    result = ocr_reader.readtext(image_array, paragraph=True, workers=1)
+    text = " ".join(item[1] for item in result)
     return normalize_text(text)
 
 def detect_ingredients(text):
@@ -121,6 +128,7 @@ def detect_ingredients(text):
                     "Описание": data["info"]
                 })
 
+    # Хваща и българско 'е', и латинско 'e'
     e_numbers = re.findall(r"[eе]\s?\d{3,4}[a-z]?", text)
     for e_code in e_numbers:
         e_code = e_code.replace(" ", "").replace("е", "e")
@@ -161,10 +169,18 @@ else:
         photo = Image.open(captured)
 
 if photo:
-    st.image(photo, use_container_width=True)
+    # Задължително свиваме снимката, за да не забива сървъра при обработката
+    max_width = 1000
+    if photo.width > max_width:
+        w_percent = (max_width / float(photo.width))
+        h_size = int((float(photo.height) * float(w_percent)))
+        photo = photo.resize((max_width, h_size), Image.Resampling.LANCZOS)
 
-    with st.spinner("Разпознаване на текст..."):
-        raw_text = extract_text(photo)
+    st.image(photo, use_container_width=True)
+    image_array = np.array(photo)
+
+    with st.spinner("Разпознаване на текст... (Първият път може да отнеме време)"):
+        raw_text = extract_text(image_array)
 
     st.subheader("Открит текст")
     with st.expander("Покажи OCR резултат"):
