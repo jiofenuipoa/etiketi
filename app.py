@@ -1,4 +1,3 @@
-```python
 import streamlit as st
 import easyocr
 import pandas as pd
@@ -305,4 +304,3 @@ if photo:
         st.error(
             "Не са открити познати съставки."
         )
-```
