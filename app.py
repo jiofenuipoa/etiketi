@@ -1,7 +1,10 @@
+```python
 import streamlit as st
 import easyocr
 import pandas as pd
 import numpy as np
+import json
+import re
 from PIL import Image
 
 st.set_page_config(
@@ -15,303 +18,168 @@ def create_reader():
 
 ocr_reader = create_reader()
 
-INGREDIENTS = {
 
-    # ВРЕДНИ / СПОРНИ
+# Зареждане на JSON базата
 
-    "хидрогенирано растително масло": {
-        "group": "Вредни",
-        "info": "Източник на трансмазнини."
-    },
+@st.cache_data
+def load_ingredients():
+    with open(
+        "ingredients.json",
+        "r",
+        encoding="utf-8"
+    ) as f:
+        return json.load(f)
 
-    "глюкозо-фруктозен сироп": {
-        "group": "Вредни",
-        "info": "Свързва се с повишен риск от затлъстяване."
-    },
 
-    "аспартам": {
-        "group": "Спорни",
-        "info": "Изкуствен подсладител (E951)."
-    },
+INGREDIENTS = load_ingredients()
 
-    "ацесулфам к": {
-        "group": "Спорни",
-        "info": "Подсладител E950."
-    },
-
-    "натриев нитрит": {
-        "group": "Вредни",
-        "info": "Консервант E250 в колбаси."
-    },
-
-    "натриев нитрат": {
-        "group": "Вредни",
-        "info": "Консервант E251."
-    },
-
-    "мононатриев глутамат": {
-        "group": "Спорни",
-        "info": "Овкусител E621."
-    },
-
-    "палмово масло": {
-        "group": "Спорни",
-        "info": "Често силно преработено."
-    },
-
-    "титанов диоксид": {
-        "group": "Вредни",
-        "info": "Оцветител E171."
-    },
-
-    # ПОЛЕЗНИ
-
-    "овесени ядки": {
-        "group": "Полезни",
-        "info": "Богати на фибри."
-    },
-
-    "ленено семе": {
-        "group": "Полезни",
-        "info": "Източник на Омега-3."
-    },
-
-    "чия": {
-        "group": "Полезни",
-        "info": "Богата на фибри и минерали."
-    },
-
-    "куркума": {
-        "group": "Полезни",
-        "info": "Съдържа куркумин."
-    },
-
-    "канела": {
-        "group": "Полезни",
-        "info": "Антиоксидантни свойства."
-    },
-
-    "зехтин": {
-        "group": "Полезни",
-        "info": "Полезни мононенаситени мазнини."
-    },
-
-    # БЕЗВРЕДНИ
-
-    "пшенично брашно": {
-        "group": "Безвредни",
-        "info": "Стандартна суровина."
-    },
-
-    "сол": {
-        "group": "Безвредни",
-        "info": "Нормална хранителна съставка."
-    },
-
-    "захар": {
-        "group": "Безвредни",
-        "info": "Да се консумира умерено."
-    },
-
-    "вода": {
-        "group": "Безвредни",
-        "info": "Основна съставка."
-    },
-
-    # Е-ТА
-
-    "e100": {
-        "group": "Полезни",
-        "info": "Куркумин."
-    },
-
-    "e101": {
-        "group": "Безвредни",
-        "info": "Рибофлавин (витамин B2)."
-    },
-
-    "e160a": {
-        "group": "Безвредни",
-        "info": "Бета-каротин."
-    },
-
-    "e200": {
-        "group": "Безвредни",
-        "info": "Сорбинова киселина."
-    },
-
-    "e202": {
-        "group": "Безвредни",
-        "info": "Калиев сорбат."
-    },
-
-    "e211": {
-        "group": "Спорни",
-        "info": "Натриев бензоат."
-    },
-
-    "e220": {
-        "group": "Спорни",
-        "info": "Серен диоксид."
-    },
-
-    "e250": {
-        "group": "Вредни",
-        "info": "Натриев нитрит."
-    },
-
-    "e251": {
-        "group": "Вредни",
-        "info": "Натриев нитрат."
-    },
-
-    "e300": {
-        "group": "Полезни",
-        "info": "Витамин C."
-    },
-
-    "e322": {
-        "group": "Безвредни",
-        "info": "Лецитин."
-    },
-
-    "e330": {
-        "group": "Безвредни",
-        "info": "Лимонена киселина."
-    },
-
-    "e407": {
-        "group": "Спорни",
-        "info": "Карагенан."
-    },
-
-    "e412": {
-        "group": "Безвредни",
-        "info": "Гуарова гума."
-    },
-
-    "e415": {
-        "group": "Безвредни",
-        "info": "Ксантанова гума."
-    },
-
-    "e471": {
-        "group": "Безвредни",
-        "info": "Моно- и диглицериди."
-    },
-
-    "e621": {
-        "group": "Спорни",
-        "info": "Мононатриев глутамат."
-    },
-
-    "e950": {
-        "group": "Спорни",
-        "info": "Ацесулфам K."
-    },
-
-    "e951": {
-        "group": "Спорни",
-        "info": "Аспартам."
-    },
-
-    "e955": {
-        "group": "Спорни",
-        "info": "Сукралоза."
-    },
-
-    "e960": {
-        "group": "Полезни",
-        "info": "Стевия."
-    }
-}
 
 OCR_ALIASES = {
 
-    # масла
     "хидрогенира": "хидрогенирано растително масло",
     "палмово": "палмово масло",
 
-    # подсладители
     "аспартам": "аспартам",
     "ацесулфам": "ацесулфам к",
 
-    # овкусители
     "глутамат": "мононатриев глутамат",
 
-    # нитрити
     "нитрит": "натриев нитрит",
     "нитрат": "натриев нитрат",
 
-    # полезни
     "овесени": "овесени ядки",
     "ленено": "ленено семе",
     "чия": "чия",
     "куркума": "куркума",
     "канела": "канела",
-    "зехтин": "зехтин",
-
-    # е-та
-    "e100": "e100",
-    "e101": "e101",
-    "e160": "e160a",
-    "e200": "e200",
-    "e202": "e202",
-    "e211": "e211",
-    "e220": "e220",
-    "e250": "e250",
-    "e251": "e251",
-    "e300": "e300",
-    "e322": "e322",
-    "e330": "e330",
-    "e407": "e407",
-    "e412": "e412",
-    "e415": "e415",
-    "e471": "e471",
-    "e621": "e621",
-    "e950": "e950",
-    "e951": "e951",
-    "e955": "e955",
-    "e960": "e960"
+    "зехтин": "зехтин"
 }
 
-def extract_text(image_obj):
-    image_array = np.array(image_obj)
-    result = ocr_reader.readtext(image_array)
 
-    return " ".join(
-        item[1].lower()
+def normalize_text(text):
+
+    text = text.lower()
+
+    replacements = {
+        "е": "e",
+        "€": "e",
+        "[": "e",
+        "]": "",
+        "(": "",
+        ")": "",
+        "{": "",
+        "}": "",
+        "|": "",
+        "\n": " "
+    }
+
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+
+    return text
+
+
+def extract_text(image_obj):
+
+    image_array = np.array(image_obj)
+
+    result = ocr_reader.readtext(
+        image_array,
+        paragraph=True
+    )
+
+    text = " ".join(
+        item[1]
         for item in result
     )
 
+    return normalize_text(text)
+
 
 def detect_ingredients(text):
+
     matches = []
+    found = set()
+
+    # Търсене по алиаси
 
     for keyword, ingredient in OCR_ALIASES.items():
+
         if keyword in text:
+
+            if ingredient in found:
+                continue
+
             data = INGREDIENTS.get(ingredient)
 
             if data:
+
+                found.add(ingredient)
+
                 matches.append({
                     "Съставка": ingredient.title(),
                     "Категория": data["group"],
                     "Описание": data["info"]
                 })
 
+    # Автоматично откриване на Е-та
+
+    e_numbers = re.findall(
+        r"e\s?\d{3,4}[a-z]?",
+        text
+    )
+
+    for e_code in e_numbers:
+
+        e_code = e_code.replace(" ", "")
+
+        if e_code in found:
+            continue
+
+        if e_code in INGREDIENTS:
+
+            data = INGREDIENTS[e_code]
+
+            found.add(e_code)
+
+            matches.append({
+                "Съставка": e_code.upper(),
+                "Категория": data["group"],
+                "Описание": data["info"]
+            })
+
     return matches
+
+
+def calculate_score(results):
+
+    score = 100
+
+    for item in results:
+
+        if item["Категория"] == "Вредни":
+            score -= 20
+
+        elif item["Категория"] == "Спорни":
+            score -= 10
+
+    return max(score, 0)
 
 
 st.title("🔍 Проверка на хранителни съставки")
 
 input_mode = st.selectbox(
     "Избери източник",
-    ["Качи изображение", "Използвай камера"]
+    [
+        "Качи изображение",
+        "Използвай камера"
+    ]
 )
 
 photo = None
 
 if input_mode == "Качи изображение":
+
     uploaded = st.file_uploader(
         "Избери файл",
         type=["png", "jpg", "jpeg"]
@@ -321,35 +189,74 @@ if input_mode == "Качи изображение":
         photo = Image.open(uploaded)
 
 else:
-    captured = st.camera_input("Направи снимка")
+
+    captured = st.camera_input(
+        "Направи снимка"
+    )
 
     if captured:
         photo = Image.open(captured)
 
 if photo:
 
-    st.image(photo, use_container_width=True)
+    st.image(
+        photo,
+        use_container_width=True
+    )
 
-    with st.spinner("Разпознаване на текст..."):
+    with st.spinner(
+        "Разпознаване на текст..."
+    ):
         raw_text = extract_text(photo)
 
     st.subheader("Открит текст")
 
-    with st.expander("Покажи OCR резултат"):
+    with st.expander(
+        "Покажи OCR резултат"
+    ):
         st.write(raw_text)
 
-    ingredients_found = detect_ingredients(raw_text)
+    ingredients_found = detect_ingredients(
+        raw_text
+    )
 
     st.subheader("Резултат")
 
     if ingredients_found:
 
-        results_df = pd.DataFrame(ingredients_found)
+        score = calculate_score(
+            ingredients_found
+        )
+
+        st.metric(
+            "Оценка на продукта",
+            f"{score}/100"
+        )
+
+        if score >= 80:
+            st.success(
+                "Добър продукт"
+            )
+
+        elif score >= 60:
+            st.warning(
+                "Среден продукт"
+            )
+
+        else:
+            st.error(
+                "Неблагоприятен продукт"
+            )
+
+        results_df = pd.DataFrame(
+            ingredients_found
+        )
 
         priority = {
             "Полезни": 1,
             "Безвредни": 2,
-            "Вредни": 3
+            "Спорни": 3,
+            "Вредни": 4
         }
 
         results_df = results_df.sort_values(
@@ -358,26 +265,44 @@ if photo:
         )
 
         st.dataframe(
-            results_df[["Съставка", "Категория"]],
+            results_df[
+                [
+                    "Съставка",
+                    "Категория"
+                ]
+            ],
             use_container_width=True
         )
 
         for row in ingredients_found:
 
             if row["Категория"] == "Полезни":
+
                 st.success(
                     f"**{row['Съставка']}**\n\n{row['Описание']}"
                 )
 
             elif row["Категория"] == "Безвредни":
+
                 st.info(
                     f"**{row['Съставка']}**\n\n{row['Описание']}"
                 )
 
-            else:
+            elif row["Категория"] == "Спорни":
+
                 st.warning(
                     f"**{row['Съставка']}**\n\n{row['Описание']}"
                 )
 
+            else:
+
+                st.error(
+                    f"**{row['Съставка']}**\n\n{row['Описание']}"
+                )
+
     else:
-        st.error("Не са открити познати съставки.")
+
+        st.error(
+            "Не са открити познати съставки."
+        )
+```
